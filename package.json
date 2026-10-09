@@ -1,0 +1,1 @@
+{"name": "data-check-poc", "private": true, "version": "0.1.0", "description": "公開データと管理データの照合・更新チェックのPOC", "scripts": {"test": "node --test test/*.test.js"}, "engines": {"node": ">=18"}}

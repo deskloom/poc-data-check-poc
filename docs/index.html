@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>公開データ照合チェック（試作）</title>
+<style>
+  :root { color-scheme: light; }
+  body { font-family: sans-serif; margin: 0; padding: 0 16px 48px; color: #222; line-height: 1.7; word-break: normal; overflow-wrap: break-word; }
+  header { max-width: 960px; margin: 0 auto; padding: 24px 0 8px; }
+  main { max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 1.4rem; margin: 0 0 8px; }
+  .note { background: #f4f6f8; border: 1px solid #ddd; border-radius: 8px; padding: 12px 16px; font-size: 0.92rem; }
+  .cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin: 16px 0; }
+  .card { border: 1px solid #ddd; border-radius: 8px; padding: 10px; text-align: center; }
+  .card b { display: block; font-size: 1.5rem; }
+  .card span { font-size: 0.8rem; }
+  .added { background: #e8f5e9; }
+  .changed { background: #fff8e1; }
+  .removed { background: #fce4ec; }
+  .same { background: #e3f2fd; }
+  .invalid { background: #f3e5f5; }
+  .filters { margin: 8px 0 16px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .filters label { border: 1px solid #bbb; border-radius: 20px; padding: 4px 12px; font-size: 0.85rem; cursor: pointer; white-space: nowrap; }
+  section.result { border: 1px solid #ddd; border-radius: 8px; margin: 12px 0; overflow: hidden; }
+  section.result h2 { font-size: 1rem; margin: 0; padding: 8px 12px; border-bottom: 1px solid #ddd; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th, td { border-top: 1px solid #eee; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #fafafa; white-space: nowrap; }
+  .badge { display: inline-block; border-radius: 4px; padding: 0 6px; font-size: 0.75rem; border: 1px solid #bbb; white-space: nowrap; }
+  .diff { color: #b26a00; font-weight: bold; }
+  footer { max-width: 960px; margin: 24px auto 0; font-size: 0.8rem; color: #666; }
+  @media (max-width: 640px) {
+    .cards { grid-template-columns: repeat(2, 1fr); }
+    table, thead, tbody, th, td, tr { display: block; }
+    thead { display: none; }
+    tr { border-top: 1px solid #eee; padding: 4px 0; }
+    td { border: none; padding: 2px 8px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>公開データ照合チェック（試作）</h1>
+  <p>毎月の更新作業のうち、手元の管理データと今月分の公開データを突き合わせて、新規・変更・終了候補・形式の誤りを一覧にする部分だけを試す画面です。表示しているのは動作確認用の架空データ11件と管理データ10件の照合結果です。</p>
+  <div class="note">外部のサービスには接続していません。表の内容はすべて架空です。実際の更新の可否は担当者が別途確認します。</div>
+</header>
+<main>
+  <div class="cards" id="summary"></div>
+  <div class="filters" id="filters" role="group" aria-label="表示の絞り込み">
+    <label><input type="checkbox" data-filter="added" checked> 新規候補</label>
+    <label><input type="checkbox" data-filter="changed" checked> 変更候補</label>
+    <label><input type="checkbox" data-filter="removed" checked> 終了候補</label>
+    <label><input type="checkbox" data-filter="invalid" checked> 形式エラー</label>
+    <label><input type="checkbox" data-filter="same" checked> 一致</label>
+  </div>
+  <div id="results"></div>
+</main>
+<footer>試作のため、取り込み・書き出し・マニュアル手順の表示は含んでいません。</footer>
+<script src="./check.js"></script>
+<script src="./data.js"></script>
+<script>
+(function () {
+  var diff = CheckLogic.diffRecords(SampleData.MANAGED, SampleData.PUBLIC);
+  var summary = CheckLogic.summarize(diff);
+
+  var cards = [
+    { cls: 'added', num: summary.added, label: '新規候補' },
+    { cls: 'changed', num: summary.changed, label: '変更候補' },
+    { cls: 'removed', num: summary.removed, label: '終了候補' },
+    { cls: 'invalid', num: summary.invalid, label: '形式エラー' },
+    { cls: 'same', num: summary.unchanged, label: '一致' },
+  ];
+  document.getElementById('summary').innerHTML = cards.map(function (c) {
+    return '<div class="card ' + c.cls + '"><b>' + c.num + '件</b><span>' + c.label + '</span></div>';
+  }).join('');
+
+  function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;'); }
+  function row4(r, mark) {
+    return '<tr><td>' + esc(r.id) + '</td><td>' + esc(r.name) + '</td><td>' + esc(r.postal) + '<br>' + esc(r.address) + '</td><td>' + esc(r.phone) + (mark || '') + '</td></tr>';
+  }
+  function head() {
+    return '<thead><tr><th>ID</th><th>名前</th><th>住所</th><th>電話番号</th></tr></thead>';
+  }
+
+  var sections = [];
+
+  sections.push({
+    key: 'added',
+    title: '新規候補（' + diff.added.length + '件）：公開データにだけある',
+    body: diff.added.length
+      ? '<table>' + head() + '<tbody>' + diff.added.map(function (e) { return row4(e.record); }).join('') + '</tbody></table>'
+      : '<p>なし</p>'
+  });
+
+  var changedBody = diff.changed.length
+    ? '<table>' + head() + '<tbody>' + diff.changed.map(function (e) {
+        var labels = { name: '名前', postal: '郵便番号', address: '住所', phone: '電話番号' };
+        var marks = e.changedFields.map(function (f) { return labels[f] || f; }).join('・');
+        return '<tr><td>' + esc(e.after.id) + '<br><span class="badge">' + esc(marks) + 'が変更</span></td><td>' +
+          esc(e.before.name) + ' → <span class="diff">' + esc(e.after.name) + '</span></td><td>' +
+          esc(e.before.postal) + ' → <span class="diff">' + esc(e.after.postal) + '</span><br>' +
+          esc(e.before.address) + ' → <span class="diff">' + esc(e.after.address) + '</span></td><td>' +
+          esc(e.before.phone) + ' → <span class="diff">' + esc(e.after.phone) + '</span></td></tr>';
+      }).join('') + '</tbody></table>'
+    : '<p>なし</p>';
+  sections.push({ key: 'changed', title: '変更候補（' + diff.changed.length + '件）：項目が変わった', body: changedBody });
+
+  sections.push({
+    key: 'removed',
+    title: '終了候補（' + diff.removed.length + '件）：公開データになくなった',
+    body: diff.removed.length
+      ? '<table>' + head() + '<tbody>' + diff.removed.map(function (e) { return row4(e.record); }).join('') + '</tbody></table>'
+      : '<p>なし</p>'
+  });
+
+  sections.push({
+    key: 'invalid',
+    title: '形式エラー（' + diff.invalid.length + '件）：照合から除外',
+    body: diff.invalid.length
+      ? '<table><thead><tr><th>ID</th><th>名前</th><th>誤りの内容</th></tr></thead><tbody>' + diff.invalid.map(function (e) {
+          return '<tr><td>' + esc(e.record.id) + '</td><td>' + esc(e.record.name) + '</td><td>' + esc(e.errors.join('・')) + '</td></tr>';
+        }).join('') + '</tbody></table>'
+      : '<p>なし</p>'
+  });
+
+  sections.push({
+    key: 'same',
+    title: '一致（' + diff.unchanged.length + '件）：更新の必要なし',
+    body: diff.unchanged.length
+      ? '<table>' + head() + '<tbody>' + diff.unchanged.map(function (e) { return row4(e.record); }).join('') + '</tbody></table>'
+      : '<p>なし</p>'
+  });
+
+  var container = document.getElementById('results');
+  container.innerHTML = sections.map(function (s) {
+    return '<section class="result" data-section="' + s.key + '"><h2>' + esc(s.title) + '</h2>' + s.body + '</section>';
+  }).join('');
+
+  document.getElementById('filters').addEventListener('change', function (ev) {
+    var box = ev.target;
+    if (!box || !box.dataset || !box.dataset.filter) return;
+    var sec = container.querySelector('[data-section="' + box.dataset.filter + '"]');
+    if (sec) sec.style.display = box.checked ? '' : 'none';
+  });
+})();
+</script>
+</body>
+</html>
